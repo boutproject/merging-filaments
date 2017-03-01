@@ -1,0 +1,52 @@
+#
+# 
+
+nout = 100
+timestep = 5
+
+MYG = 0
+
+[mesh]
+
+Lx = 1.0   # X size in meters
+Lz = 2.0   # Z size in meters
+
+nx = 84    # number of points in X, including 4 guard cells
+ny = 1     # Axisymmetric
+nz = 160    # Number of points in Z
+
+# Parallel current density
+
+Jpar = gauss(xpos-0.5*Lx,0.1)*gauss(zpos-0.5*Lz, 0.1)
+
+Bxy = 1.0  # Magnetic field in Tesla
+
+######################
+
+
+xpos = x * Lx          # X position [m]
+zpos = z * Lz / (2*pi) # Z position [m]
+
+g11 = Bxy^2
+g_11 = 1/g11
+J = 1.0
+
+dx = Bxy * Lx/nx  # Flux
+dz = Lz / nz
+
+[solver]  # Time integration solver
+
+
+[phisolver]
+type=cyclic
+dst = true
+
+[psisolver]
+type = cyclic
+dst = true
+
+[model]
+
+viscosity = 1e-2
+resistivity = 1e-5
+
