@@ -1,23 +1,40 @@
 #
 # 
 
-nout = 100
-timestep = 5
+nout = 300
+timestep = 1
 
 MYG = 0
 
+ZMAX = mesh:Lz/(2*pi) # Sets dz
+
 [mesh]
 
-Lx = 1.0   # X size in meters
-Lz = 2.0   # Z size in meters
+Lx = 1.8   # X size in meters (0.2 to 2.0 in MAST)
+Lz = 4.4   # Z size in meters (-2.2 to +2.2 in MAST)
 
-nx = 84    # number of points in X, including 4 guard cells
+nx = 324    # number of points in X, including 4 guard cells
 ny = 1     # Axisymmetric
-nz = 160    # Number of points in Z
+nz = 640    # Number of points in Z
 
 # Parallel current density
 
-Jpar = gauss(xpos-0.5*Lx,0.1)*gauss(zpos-0.35*Lz, 0.1) + gauss(xpos-0.5*Lx,0.1)*gauss(zpos-0.65*Lz, 0.1)
+mu0 = 4e-7*pi
+
+jm = mu0 * 0.8e6  # Maximum current density [A/m^2] normalised to mu0
+w = 0.4  # Width of the current filaments
+
+X0 = 0.9 # X location of the filaments
+Z1 = 2.2+0.6 # Z location of filament 1
+Z2 = 2.2-0.6 # Z location of filament 2
+
+R1 = sqrt((xpos-X0)^2 + (zpos-Z1)^2) # Radius from centre of filament 0
+R2 = sqrt((xpos-X0)^2 + (zpos-Z2)^2) # Radius from centre of filament 1
+
+filament1 = H(w - R1)*jm*(1-(R1/w)^2)^2
+filament2 = H(w - R2)*jm*(1-(R2/w)^2)^2
+
+Jpar = filament1 + filament2
 
 Bxy = 1.0  # Magnetic field in Tesla
 
@@ -32,7 +49,7 @@ g_11 = 1/g11
 J = 1.0
 
 dx = Bxy * Lx/nx  # Flux
-dz = Lz / nz
+ZMAX = Lz/(2*pi) # Sets dz
 
 [solver]  # Time integration solver
 
@@ -47,6 +64,7 @@ dst = true
 
 [model]
 
-viscosity = 1e-2
-resistivity = 1e-5
+viscosity = 5e-4    # Normalised Braginskii is 5.629712e-10, gyro 7.248928e-07
+resistivity = 5e-6  # Normalised Braginskii is 2.220479e-06
+
 

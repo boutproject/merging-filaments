@@ -2,7 +2,7 @@
 # 
 
 nout = 100
-timestep = 5
+timestep = 1e-1
 
 MYG = 0
 

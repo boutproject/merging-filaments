@@ -18,7 +18,21 @@ Test cases are
 
 *single-no-resist*  A single filament with eta=0
 
-*merging*  Two current filaments with eta=1e-5
+*merging*  Two current filaments with eta=5e-6. These parameters
+    are chosen to be the same as used for MAST simulations in
+
+     A.Stanier et al
+
+    density n_0 = 5e18 m^-3
+    Magnetic field B_0 = 0.5 T
+    Te = Ti = 10eV
+
+    To plot the reconnection rate (toroidal electric field), 
+    run the test case then a Python script to analyse:
+
+    $ make
+    $ mpirun -np 16 ./merging-flux -d merging
+    $ python plot-reconnection.py
 
 *merging-no-resist*  Two current filaments with eta = 0
 
@@ -33,14 +47,6 @@ Run all cases, then the python script "makeplots.py"
 
 This should produce a number of PDF figures
 
-MAST simulations
-----------------
-
-Typical parameters prior to merging:
-
-density n_0 = 5e18 m^-3
-Magnetic field B_0 = 0.5 T
-Te = Ti = 10eV
 
 
 

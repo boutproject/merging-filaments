@@ -7,14 +7,14 @@ from numpy import amax, abs, linspace, transpose
 
 # Single filament results
 
-psi1 = collect("psi", path="single", xind=40, zind=80)[:,0,0,0]
-psi2 = collect("psi", path="single-no-resist", xind=40, zind=80)[:,0,0,0]
+Apar1 = collect("Apar", path="single", xind=40, zind=80)[:,0,0,0]
+Apar2 = collect("Apar", path="single-no-resist", xind=40, zind=80)[:,0,0,0]
 t = collect("t_array", path="single")
 
-plt.plot(t, psi1, label=r"$\eta = 10^{-5}$")
-plt.plot(t, psi2, label=r"$\eta = 0.0$")
+plt.plot(t, Apar1, label=r"$\eta = 10^{-5}$")
+plt.plot(t, Apar2, label=r"$\eta = 0.0$")
 plt.xlabel("Time [normalised]")
-plt.ylabel(r"Flux $\psi$ at filament centre")
+plt.ylabel(r"Flux $A_{||}$ at filament centre")
 plt.legend()
 plt.savefig("single_flux.pdf")
 plt.show()
@@ -52,14 +52,14 @@ plt.show()
 
 ### Merging
 
-psi1 = collect("psi", path="merging", xind=40, zind=80)[:,0,0,0]
-psi2 = collect("psi", path="merging-no-resist", xind=40, zind=80)[:,0,0,0]
-t = collect("t_array", path="single")
+Apar1 = collect("Apar", path="merging", xind=40, zind=80)[:,0,0,0]
+Apar2 = collect("Apar", path="merging-no-resist", xind=40, zind=80)[:,0,0,0]
+t = collect("t_array", path="merging")
 
-plt.plot(t, psi1, label=r"$\eta = 10^{-5}$")
-plt.plot(t, psi2, label=r"$\eta = 0.0$")
+plt.plot(t, Apar1, label=r"$\eta = 10^{-5}$")
+plt.plot(t, Apar2, label=r"$\eta = 0.0$")
 plt.xlabel("Time [normalised]")
-plt.ylabel(r"Flux $\psi$ at domain centre")
+plt.ylabel(r"Flux $A_{||}$ at domain centre")
 plt.legend()
 plt.savefig("merge_flux.pdf")
 plt.show()

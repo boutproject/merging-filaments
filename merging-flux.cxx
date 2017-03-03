@@ -1,20 +1,68 @@
 
 #include <bout/physicsmodel.hxx>
+#include <bout/constants.hxx>
 #include <invert_laplace.hxx>
 
 class MergingFlux : public PhysicsModel {
 protected:
   int init(bool restarting) {
+    
+    // Get the magnetic field
+    B0 = mesh->coordinates()->Bxy;
+    
     // Read options
     Options *opt = Options::getRoot()->getSection("model");
     OPTION(opt, resistivity, 0.0);
     OPTION(opt, viscosity, 0.0);
     OPTION(opt, density, 5e18);
+    OPTION(opt, Te, 10.); // Reference temperature [eV]
+    OPTION(opt, AA, 2.0); // Atomic mass number
     
+    BoutReal mass_density = density * AA*SI::Mp; // kg/m^3
+
     // Calculate normalisations
-    tau_alfven = sqrt(4e-7*PI * density);
+    tau_A = sqrt(SI::mu0 * mass_density); // timescale [s]
     
-    SOLVE_FOR2(Psi, U);
+    SAVE_ONCE2(tau_A, density); // Save to output
+    SAVE_ONCE2(resistivity, viscosity); 
+
+    output.write("\tDensity = %e m^-3, tau_A = %e seconds\n", density, tau_A);
+
+    // Collisional calculation
+    
+    BoutReal Coulomb = 6.6 - 0.5*log(density/1e20) + 1.5*log(Te); // Coulomb logarithm
+    output.write("\tCoulomb logarithm = %e\n", Coulomb);
+    
+    // Electron collision time [seconds]
+    BoutReal tau_e = 1. / (2.91e-6 * (density / 1e6) * Coulomb * pow(Te, -3./2));
+    // ion-ion collision time [seconds]
+    BoutReal tau_i = sqrt(AA) / (4.80e-8 * (density / 1e6) * Coulomb * pow(Te, -3./2));
+    
+    output.write("\tCollision times [sec]: tau_e = %e, tau_i = %e\n", tau_e, tau_i);
+    
+    // Parallel conductivity
+    BoutReal sigma_par = 1.96*density*SQ(SI::qe)*tau_e/SI::Me;
+    
+    output.write("\tBraginskii resistivity: %e [Ohm m]\n", 1./sigma_par);
+    output.write("\tNormalised Braginskii: %e\n", tau_A/(SI::mu0*sigma_par));
+    output.write("\tUsing resistivity: %e\n", resistivity);
+    
+    
+    // Perpendicular viscosity
+    BoutReal Bmag = max(B0, true); // max over domain
+    BoutReal Omega_i = SI::qe*Bmag/(AA*SI::Mp);
+    BoutReal eta_perp = 0.3 * density*SI::qe*Te/ ( SQ(Omega_i)*tau_i );
+    
+    // Perpendicular gyro-viscosity
+    BoutReal eta_gyro = 0.5*density*SI::qe*Te/Omega_i;
+    
+    output.write("\tViscosity: %e [Pa s], Gyro-viscosity: %e [Pa s]\n", eta_perp, eta_gyro);
+    output.write("\tKinematic viscosity: %e [m^2/s], Gyro-viscosity: %e [m^2/s]\n", eta_perp/mass_density, eta_gyro/mass_density);
+    output.write("\tNormalised kin. viscosity: %e, gyro: %e\n", tau_A*eta_perp/mass_density, tau_A*eta_gyro/mass_density);
+    output.write("\tUsing viscosity: %e\n", viscosity);
+
+    // Solve for electromagnetic potential and vorticity
+    SOLVE_FOR2(Apar, omega);
     
     // Read parallel current density
     mesh->get(Jpar, "Jpar");
@@ -26,38 +74,38 @@ protected:
     if(!restarting) {
       // Invert Jpar to get vector potential
       
-      Psi = psiSolver->solve(Jpar);
+      Apar = -psiSolver->solve(Jpar);
     }
     phi = 0.0; // Initial value
     
     // Additional outputs
     SAVE_REPEAT2(phi, Jpar);
-
+    
+    
     return 0;
   }
   int rhs(BoutReal t) {
     
-    Coordinates *coord = mesh->coordinates();
-    mesh->communicate(Psi, U);
+    mesh->communicate(Apar, omega);
 
     // Get J from Psi
-    Jpar = Delp2(Psi);
+    Jpar = -Delp2(Apar);
 
     // Get phi from vorticity
-    phi = phiSolver->solve(U);
+    phi = phiSolver->solve(omega*SQ(B0));
     mesh->communicate(Jpar, phi);
-
+    
     // Vorticity
-    ddt(U) = 
-      SQ(coord->Bxy) * bracket(Psi, Jpar, BRACKET_ARAKAWA) // b dot Grad(Jpar)
-      - bracket(phi, U, BRACKET_ARAKAWA)  // ExB advection
-      + viscosity*Delp2(U)  // Viscosity
+    ddt(omega) = 
+      - bracket(Apar, Jpar, BRACKET_ARAKAWA) // b dot Grad(Jpar)
+      - bracket(phi, omega, BRACKET_ARAKAWA)  // ExB advection
+      + viscosity*Delp2(omega)  // Viscosity
       ;
     
     // Vector potential
-    ddt(Psi) = 
-      bracket(Psi, phi, BRACKET_ARAKAWA) // b dot Grad(phi)
-      + resistivity * Jpar // Resistivity
+    ddt(Apar) = 
+      bracket(Apar, phi, BRACKET_ARAKAWA) // b dot Grad(phi)
+      - resistivity * Jpar // Resistivity
       ;
     
     return 0;
@@ -65,17 +113,23 @@ protected:
 
 private:
   // Evolving variables
-  Field3D Psi, U;  // Electromagnetic potential, vorticity
+  Field3D Apar, omega;  // Electromagnetic potential, vorticity
   
   Field3D Jpar;   // Parallel current density
   Field3D phi;    // Electrostatic potential
+
+  Field2D B0;  // Magnetic field [T]
 
   Laplacian *phiSolver; // Solver for potential phi from vorticity
   Laplacian *psiSolver; // Solver for psi from current Jpar
 
   BoutReal resistivity;
   BoutReal viscosity;
-  BoutReal density;
+  
+  BoutReal tau_A; // Normalisation timescale [s]
+  BoutReal density; // Normalisation density [m^-3]
+  BoutReal Te; // Temperature for collisions calculation [eV]
+  BoutReal AA; // Atomic mass number
 };
 
 BOUTMAIN(MergingFlux);
