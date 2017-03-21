@@ -8,7 +8,9 @@ protected:
   int init(bool restarting) {
     
     // Get the magnetic field
-    B0 = mesh->coordinates()->Bxy;
+    Coordinates *coord = mesh->coordinates();
+    B0 = coord->Bxy;
+    R = sqrt(coord->g_22);
     
     // Read options
     Options *opt = Options::getRoot()->getSection("model");
@@ -17,6 +19,8 @@ protected:
     OPTION(opt, density, 5e18);
     OPTION(opt, Te, 10.); // Reference temperature [eV]
     OPTION(opt, AA, 2.0); // Atomic mass number
+
+    OPTION(opt, Bv, 0.0); // External vertical field [T]
     
     BoutReal mass_density = density * AA*SI::Mp; // kg/m^3
 
@@ -79,14 +83,24 @@ protected:
     phi = 0.0; // Initial value
     
     // Additional outputs
-    SAVE_REPEAT2(phi, Jpar);
-    
+    SAVE_REPEAT3(phi, Jpar, psi);
     
     return 0;
   }
   int rhs(BoutReal t) {
     
     mesh->communicate(Apar, omega);
+    
+    // Apply Dirichlet boundary conditions in z
+    for(int i=0;i<mesh->LocalNx;i++) {
+      for(int j=0;j<mesh->LocalNy;j++) {
+        Apar(i,j,0) = -Apar(i,j,1);
+        Apar(i,j,mesh->LocalNz-1) = -Apar(i,j,mesh->LocalNz-2);
+        
+        omega(i,j,0) = -omega(i,j,1);
+        omega(i,j,mesh->LocalNz-1) = -omega(i,j,mesh->LocalNz-2);
+      }
+    }
 
     // Get J from Psi
     Jpar = -Delp2(Apar);
@@ -94,17 +108,28 @@ protected:
     // Get phi from vorticity
     phi = phiSolver->solve(omega*SQ(B0));
     mesh->communicate(Jpar, phi);
+
+    Jpar.applyBoundary("neumann");
+    for(int i=0;i<mesh->LocalNx;i++) {
+      for(int j=0;j<mesh->LocalNy;j++) {
+        Jpar(i,j,0) = Jpar(i,j,1);
+        Jpar(i,j,mesh->LocalNz-1) = Jpar(i,j,mesh->LocalNz-2);
+      }
+    }
+    
+    // Poloidal flux, including external field
+    psi = Apar * R + 0.5*Bv*SQ(R);
     
     // Vorticity
     ddt(omega) = 
-      - bracket(Apar, Jpar, BRACKET_ARAKAWA) // b dot Grad(Jpar)
+      - bracket(psi, Jpar, BRACKET_ARAKAWA)/R // b dot Grad(Jpar)
       - bracket(phi, omega, BRACKET_ARAKAWA)  // ExB advection
       + viscosity*Delp2(omega)  // Viscosity
       ;
     
     // Vector potential
     ddt(Apar) = 
-      bracket(Apar, phi, BRACKET_ARAKAWA) // b dot Grad(phi)
+      bracket(psi, phi, BRACKET_ARAKAWA)/R // b dot Grad(phi)
       - resistivity * Jpar // Resistivity
       ;
     
@@ -117,6 +142,7 @@ private:
   
   Field3D Jpar;   // Parallel current density
   Field3D phi;    // Electrostatic potential
+  Field3D psi;    // Poloidal flux
 
   Field2D B0;  // Magnetic field [T]
 
@@ -130,6 +156,9 @@ private:
   BoutReal density; // Normalisation density [m^-3]
   BoutReal Te; // Temperature for collisions calculation [eV]
   BoutReal AA; // Atomic mass number
+
+  Field2D R; // Major radius
+  BoutReal Bv; // Vertical magnetic field
 };
 
 BOUTMAIN(MergingFlux);

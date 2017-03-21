@@ -27,6 +27,8 @@ aclocal.m4
 data_*
 test*.py
 *.pdf
+*.png
+*.jpg
 BOUT.dmp.*
 BOUT.log.*
 BOUT.failed.*

@@ -1,0 +1,89 @@
+#
+# 
+
+nout = 100
+timestep = 1
+
+MYG = 0
+
+ZMAX = mesh:Lz/(2*pi) # Sets dz
+
+[mesh]
+
+Lx = 1.8   # X size in meters (0.2 to 2.0 in MAST)
+Lz = 4.4   # Z size in meters (-2.2 to +2.2 in MAST)
+
+nx = 68    # number of points in X, including 4 guard cells
+ny = 1     # Axisymmetric
+nz = 128    # Number of points in Z
+
+# Parallel current density
+
+mu0 = 4e-7*pi
+
+jm = mu0 * 0.8e6  # Maximum current density [A/m^2] normalised to mu0
+w = 0.4  # Width of the current filaments
+
+X0 = 0.9 # X location of the filaments
+Z1 = 2.2+0.6 # Z location of filament 1
+Z2 = 2.2-0.6 # Z location of filament 2
+
+R1 = sqrt((xpos-X0)^2 + (zpos-Z1)^2) # Radius from centre of filament 0
+R2 = sqrt((xpos-X0)^2 + (zpos-Z2)^2) # Radius from centre of filament 1
+
+filament1 = H(w - R1)*jm*(1-(R1/w)^2)^2
+filament2 = H(w - R2)*jm*(1-(R2/w)^2)^2
+
+Jpar = filament1 + filament2
+
+RBt = 0.5  # R*Bt in [m][T]
+
+######################
+
+
+xpos = x * Lx          # X position [m]
+zpos = z * Lz / (2*pi) # Z position [m]
+
+Rxy = xpos + 0.2  # Major radius [m]
+
+Bxy = RBt / Rxy # Magnetic field in Tesla
+
+# The x direction is (toroidal) flux dx = B*dlx
+g11 = Bxy^2
+g_11 = 1/g11
+
+# The y direction is toroidal angle
+g22 = 1/Rxy^2
+g_22 = 1/g22
+
+# The z direction is height dz = dlz
+
+J = Rxy / Bxy
+
+dx = Bxy * Lx/nx  # Flux
+ZMAX = Lz/(2*pi) # Sets dz
+
+[solver]  # Time integration solver
+
+
+[phisolver]
+type=cyclic
+dst = true
+nonuniform = true
+
+[psisolver]
+type = cyclic
+dst = true
+nonuniform = true
+
+[laplace]
+nonuniform = true
+
+
+[model]
+
+viscosity = 5e-4    # Normalised Braginskii is 5.629712e-10, gyro 7.248928e-07
+resistivity = 5e-6  # Normalised Braginskii is 2.220479e-06
+
+Bv = -0.03 # External vertical field [T]
+

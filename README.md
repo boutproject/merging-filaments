@@ -36,6 +36,12 @@ Test cases are
 
 *merging-no-resist*  Two current filaments with eta = 0
 
+*toroidal*  Two current filaments in toroidal geometry
+
+    $ make
+    $ mpirun -np 16 ./merging-flux -d toroidal
+    $ python plot-toroidal.py
+
 Run all cases, then the python script "makeplots.py"
 
     $ make
