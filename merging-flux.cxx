@@ -8,7 +8,7 @@ protected:
   int init(bool restarting) {
     
     // Get the magnetic field
-    Coordinates *coord = mesh->coordinates();
+    Coordinates *coord = mesh->getCoordinates();
     B0 = coord->Bxy;
     R = sqrt(coord->g_22);
     
