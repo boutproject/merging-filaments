@@ -4,9 +4,13 @@ Merging current filaments
 2D simulation in X-Z of merging current filaments
 in a rectangular domain with ideal walls. 
 
-Evolves flute-reduced, zero-beta model for vorticity U
-and magnetic flux Psi, with auxilliary variables Jpar
-(parallel current density) and phi (electrostatic potential).
+*Note*: This version should compile with the "next" branch of BOUT++,
+as of Feb 27 2020.
+
+Evolves flute-reduced, zero-beta model with Hall terms for vorticity U
+and magnetic flux Psi, toroidal velocity vz and toroidal magnetic
+field Bz, with auxilliary variables Jpar (parallel current density)
+and phi (electrostatic potential).
 
     dU/dt = [Psi, Jpar] - [phi, U] + nu*Delp2(U)
     dPsi/dt = [Psi, phi] + eta * Jpar

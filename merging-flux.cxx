@@ -8,15 +8,16 @@ protected:
   int init(bool restarting) {
     
     // Get the magnetic field
-    Coordinates *coord = mesh->coordinates();
+    Coordinates *coord = mesh->getCoordinates();
     B0 = coord->Bxy;
     R = sqrt(coord->g_22);
     
     // Read options
     Options *opt = Options::getRoot()->getSection("model");
     OPTION(opt, resistivity, 0.0);
+    OPTION(opt, hyper, 0.0);  // Hyper-resisitivity [normalised]
     OPTION(opt, viscosity, 0.0);
-    OPTION(opt, density, 5e18);
+    OPTION(opt, density, 5e18); // Number density [m^-3]
     OPTION(opt, Te, 10.); // Reference temperature [eV]
     OPTION(opt, AA, 2.0); // Atomic mass number
 
@@ -31,7 +32,14 @@ protected:
     SAVE_ONCE2(resistivity, viscosity); 
 
     output.write("\tDensity = %e m^-3, tau_A = %e seconds\n", density, tau_A);
-
+    
+    // Hall coupling term
+    BoutReal plasma_frequency = 1./sqrt(AA*SI::Mp * SI::e0 / (density * SI::qe * SI::qe));
+    epsilon = SI::c / plasma_frequency;
+    SAVE_ONCE(epsilon);
+    
+    output.write("\tPlasma frequency = %e rad/s, Hall epsilon = %e\n", plasma_frequency, epsilon);
+    
     // Collisional calculation
     
     BoutReal Coulomb = 6.6 - 0.5*log(density/1e20) + 1.5*log(Te); // Coulomb logarithm
@@ -65,8 +73,8 @@ protected:
     output.write("\tNormalised kin. viscosity: %e, gyro: %e\n", tau_A*eta_perp/mass_density, tau_A*eta_gyro/mass_density);
     output.write("\tUsing viscosity: %e\n", viscosity);
 
-    // Solve for electromagnetic potential and vorticity
-    SOLVE_FOR2(Apar, omega);
+    // Solve for electromagnetic potential and vorticity, Bz and vz
+    SOLVE_FOR(Apar, omega, Bz, vz);
     
     // Read parallel current density
     mesh->get(Jpar, "Jpar");
@@ -87,9 +95,10 @@ protected:
     
     return 0;
   }
-  int rhs(BoutReal t) {
-    
-    mesh->communicate(Apar, omega);
+  int rhs(BoutReal UNUSED(t)) {
+
+    // Exchange guard cells 
+    mesh->communicate(Apar, omega, Bz, vz);
     
     // Apply Dirichlet boundary conditions in z
     for(int i=0;i<mesh->LocalNx;i++) {
@@ -99,6 +108,12 @@ protected:
         
         omega(i,j,0) = -omega(i,j,1);
         omega(i,j,mesh->LocalNz-1) = -omega(i,j,mesh->LocalNz-2);
+
+	Bz(i,j,0) = -Bz(i,j,1);
+        Bz(i,j,mesh->LocalNz-1) = -Bz(i,j,mesh->LocalNz-2);
+	
+	vz(i,j,0) = -vz(i,j,1);
+        vz(i,j,mesh->LocalNz-1) = -vz(i,j,mesh->LocalNz-2);
       }
     }
 
@@ -130,7 +145,24 @@ protected:
     // Vector potential
     ddt(Apar) = 
       bracket(psi, phi, BRACKET_ARAKAWA)/R // b dot Grad(phi)
+      - epsilon * bracket(Bz, psi, BRACKET_ARAKAWA)/R  // New Hall term
       - resistivity * Jpar // Resistivity
+      + hyper * Delp2(Jpar) // Hyper-resistivity
+      ;
+
+    // Bz, parallel component of magnetic field
+    ddt(Bz) =
+      bracket(Bz, phi, BRACKET_ARAKAWA)
+      - bracket(psi, vz, BRACKET_ARAKAWA)/R
+      + epsilon * bracket(psi, Jpar, BRACKET_ARAKAWA)/R
+      + resistivity * Delp2(Bz)
+      ;
+    
+    // vz, parallel component of velocity
+    ddt(vz) =
+      bracket(vz, phi, BRACKET_ARAKAWA)
+      + bracket(Bz, psi, BRACKET_ARAKAWA)/R
+      + viscosity * Delp2(vz)
       ;
     
     return 0;
@@ -139,6 +171,7 @@ protected:
 private:
   // Evolving variables
   Field3D Apar, omega;  // Electromagnetic potential, vorticity
+  Field3D Bz, vz;   // z components of magnetic field and velocity (Hall model)
   
   Field3D Jpar;   // Parallel current density
   Field3D phi;    // Electrostatic potential
@@ -146,11 +179,14 @@ private:
 
   Field2D B0;  // Magnetic field [T]
 
-  Laplacian *phiSolver; // Solver for potential phi from vorticity
-  Laplacian *psiSolver; // Solver for psi from current Jpar
+  std::unique_ptr<Laplacian> phiSolver; // Solver for potential phi from vorticity
+  std::unique_ptr<Laplacian> psiSolver; // Solver for psi from current Jpar
 
   BoutReal resistivity;
   BoutReal viscosity;
+  BoutReal hyper; // Hyper-resistivity
+
+  BoutReal epsilon;   // Hall coupling term c/wpi
   
   BoutReal tau_A; // Normalisation timescale [s]
   BoutReal density; // Normalisation density [m^-3]

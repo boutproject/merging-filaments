@@ -84,6 +84,7 @@ nonuniform = true
 
 viscosity = 5e-4    # Normalised Braginskii is 5.629712e-10, gyro 7.248928e-07
 resistivity = 5e-6  # Normalised Braginskii is 2.220479e-06
+hyper = 1e-8   # Normalised hyper-resistivity
 
 Bv = -0.03 # External vertical field [T]
 
