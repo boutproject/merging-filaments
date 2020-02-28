@@ -4,13 +4,19 @@
 #include <invert_laplace.hxx>
 #include <field_factory.hxx>
 
-// Note: C++17 includes elliptic integrals.
+///////////////////////////////////////////////////////
+// Add a function coil_greens(Rc, Zc, R, Z) to the
+// input expression parser. This calculates the magnetic flux
+// due to a single-turn toroidal coil.
+ 
+// Note: C++17 includes elliptic integrals in the standard.
 // For now use Cephes library, used by e.g. Scipy
 double ellpk(double x); // Complete elliptic integral of the first kind
 double ellpe(double x); // Complete elliptic integral of the second kind
 
 /// Calculate poloidal flux at (R,Z) due to a unit current
 /// at (Rc,Zc) using Greens function
+/// This code was adapted from FreeGS
 double coil_greens(double Rc, double Zc, double R, double Z) {
   // Calculate k^2
   double k2 = 4.*R * Rc / ( SQ(R + Rc) + SQ(Z - Zc) );
@@ -54,10 +60,11 @@ public:
     return std::make_shared<CoilGenerator>(Rc_new, Zc_new, Rgen_new, Zgen_new);
   }
 private:
-  BoutReal Rc, Zc;  // Coil location
+  BoutReal Rc, Zc;  // Coil location, fixed
   FieldGeneratorPtr Rgen, Zgen; // Location, function of x,y,z,t
 };
 
+///////////////////////////////////////////////////////
 
 class MergingFlux : public PhysicsModel {
 protected:
@@ -73,14 +80,17 @@ protected:
     R = sqrt(coord->g_22);
     
     // Read options
-    Options *opt = Options::getRoot()->getSection("model");
-    OPTION(opt, resistivity, 0.0);
-    OPTION(opt, viscosity, 0.0);
-    OPTION(opt, density, 5e18);
-    OPTION(opt, Te, 10.); // Reference temperature [eV]
-    OPTION(opt, AA, 2.0); // Atomic mass number
+    Options& opt = Options::root()["model"];
+    resistivity = opt["resistivity"].withDefault(0.0);
+    viscosity = opt["viscosity"].withDefault(0.0);
+    density = opt["density"].withDefault(5e18);
+    Te = opt["Te"].doc("Reference temperature [eV]").withDefault(10.);
+    AA = opt["AA"].doc("Atomic mass number").withDefault(2.0);
 
-    OPTION(opt, Bv, 0.0); // External vertical field [T]
+    Bv = opt["Bv"].doc("External vertical field [T]").withDefault(0.0);
+    Psiext = opt["Psiext"].doc("External magnetic flux [Wb]").withDefault(Field3D(0.0));
+
+    SAVE_ONCE(Psiext);
     
     BoutReal mass_density = density * AA*SI::Mp; // kg/m^3
 
@@ -178,7 +188,7 @@ protected:
     }
     
     // Poloidal flux, including external field
-    psi = Apar * R + 0.5*Bv*SQ(R);
+    psi = Apar * R + 0.5*Bv*SQ(R) + Psiext;
     
     // Vorticity
     ddt(omega) = 
@@ -219,6 +229,7 @@ private:
 
   Field2D R; // Major radius
   BoutReal Bv; // Vertical magnetic field
+  Field3D Psiext; // External magnetic flux
 };
 
 BOUTMAIN(MergingFlux);
