@@ -88,13 +88,27 @@ protected:
     AA = opt["AA"].doc("Atomic mass number").withDefault(2.0);
 
     Bv = opt["Bv"].doc("External vertical field [T]").withDefault(0.0);
-    Psiext = opt["Psiext"].doc("External magnetic flux [Wb]").withDefault(Field3D(0.0));
 
-    SAVE_ONCE(Psiext);
+    // External flux Psiext and toroidal electric field Eext can vary in time
+    // so a generator is needed which can be evaluated at each step
+    FieldFactory* factory = FieldFactory::get();
+    Psiext_gen = factory->parse(
+        opt["Psiext"].doc("External magnetic flux [Wb]").withDefault("0.0"),
+        &opt);
+    Psiext = factory->create3D(Psiext_gen);
+
+    Eext_gen = factory->parse(opt["Eext"]
+                                  .doc("External toroidal electric field [V/m]")
+                                  .withDefault("0.0"),
+                              &opt);
+    Eext = factory->create3D(Eext_gen);
+    
+    SAVE_REPEAT(Psiext, Eext);
     
     BoutReal mass_density = density * AA*SI::Mp; // kg/m^3
 
     // Calculate normalisations
+    // Note: A reference magnetic field of 1T and length of 1m is used
     tau_A = sqrt(SI::mu0 * mass_density); // timescale [s]
     
     SAVE_ONCE2(tau_A, density); // Save to output
@@ -157,7 +171,7 @@ protected:
     
     return 0;
   }
-  int rhs(BoutReal UNUSED(t)) {
+  int rhs(BoutReal time) {
     
     mesh->communicate(Apar, omega);
     
@@ -186,6 +200,17 @@ protected:
         Jpar(i,j,mesh->LocalNz-1) = Jpar(i,j,mesh->LocalNz-2);
       }
     }
+
+    // Evaluate external poloidal flux Psiext and toroidal electric field Eext
+    // Note that the normalisation (B=1T, L=1T) means that the input Psiext
+    // is in Webers (SI units). Because time is normalised to tau_A,
+    // the input electric field Eext is multiplied by tau_A to get normalised units.
+    //
+    // To keep the input in SI units, time "t" is given in seconds
+
+    FieldFactory* factory = FieldFactory::get();
+    Psiext = factory->create3D(Psiext_gen, bout::globals::mesh, CELL_CENTRE, time * tau_A);
+    Eext = tau_A * factory->create3D(Eext_gen, bout::globals::mesh, CELL_CENTRE, time * tau_A);
     
     // Poloidal flux, including external field
     psi = Apar * R + 0.5*Bv*SQ(R) + Psiext;
@@ -201,6 +226,7 @@ protected:
     ddt(Apar) = 
       bracket(psi, phi, BRACKET_ARAKAWA)/R // b dot Grad(phi)
       - resistivity * Jpar // Resistivity
+      + Eext  // External electric field. Since Eext = -dAext/dt, the plasma Apar cancels Psiext
       ;
     
     return 0;
@@ -230,6 +256,12 @@ private:
   Field2D R; // Major radius
   BoutReal Bv; // Vertical magnetic field
   Field3D Psiext; // External magnetic flux
+  Field3D Eext;   // External toroidal electric field
+  
+  // Generators for time-varying external flux and electric field
+  FieldGeneratorPtr Psiext_gen;  // Generates Psiext
+  FieldGeneratorPtr Eext_gen;    // Generates Eext;
+  
 };
 
 BOUTMAIN(MergingFlux);
