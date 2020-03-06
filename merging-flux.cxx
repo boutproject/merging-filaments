@@ -2,29 +2,113 @@
 #include <bout/physicsmodel.hxx>
 #include <bout/constants.hxx>
 #include <invert_laplace.hxx>
+#include <field_factory.hxx>
+
+///////////////////////////////////////////////////////
+// Add a function coil_greens(Rc, Zc, R, Z) to the
+// input expression parser. This calculates the magnetic flux
+// due to a single-turn toroidal coil.
+ 
+// Note: C++17 includes elliptic integrals in the standard.
+// For now use Cephes library, used by e.g. Scipy
+double ellpk(double x); // Complete elliptic integral of the first kind
+double ellpe(double x); // Complete elliptic integral of the second kind
+
+/// Calculate poloidal flux at (R,Z) due to a unit current
+/// at (Rc,Zc) using Greens function
+/// This code was adapted from FreeGS
+double coil_greens(double Rc, double Zc, double R, double Z) {
+  // Calculate k^2
+  double k2 = 4.*R * Rc / ( SQ(R + Rc) + SQ(Z - Zc) );
+
+  // Clip to between 0 and 1 to avoid nans e.g. when coil is on grid point
+  if (k2 < 1e-10)
+    k2 = 1e-10;
+  if (k2 > 1.0 - 1e-10)
+    k2 = 1.0 - 1e-10;
+  double k = sqrt(k2);
+
+  // Note definition of ellpk, ellpe is K(k^2), E(k^2)
+  return 2e-7 * sqrt(R*Rc) * ( (2. - k2)*ellpk(k2) - 2.*ellpe(k2) ) / k;
+}
+
+class CoilGenerator : public FieldGenerator {
+public:
+  CoilGenerator() = default;
+  
+  CoilGenerator(BoutReal Rc, BoutReal Zc, FieldGeneratorPtr R, FieldGeneratorPtr Z)
+    : Rc(Rc), Zc(Zc), Rgen(R), Zgen(Z) {}
+  
+  BoutReal generate(BoutReal x, BoutReal y, BoutReal z, BoutReal t) override {
+    // Calculate R,Z location of this (x,y,z) point
+    BoutReal R = Rgen->generate(x,y,z,t);
+    BoutReal Z = Zgen->generate(x,y,z,t);
+    
+    return coil_greens(Rc, Zc, R, Z);
+  }
+  FieldGeneratorPtr clone(const std::list<FieldGeneratorPtr> args) override {
+    if (args.size() != 4) {
+      throw BoutException("coil_greens expects 4 arguments (Rc, Zc, R, Z)");
+    }
+    auto argsit = args.begin();
+    // Coil positions are constants
+    BoutReal Rc_new = (*argsit++)->generate(0,0,0,0);
+    BoutReal Zc_new = (*argsit++)->generate(0,0,0,0);
+    // Evaluation location can be a function of x,y,z,t
+    FieldGeneratorPtr Rgen_new = *argsit++;
+    FieldGeneratorPtr Zgen_new = *argsit;
+    return std::make_shared<CoilGenerator>(Rc_new, Zc_new, Rgen_new, Zgen_new);
+  }
+private:
+  BoutReal Rc, Zc;  // Coil location, fixed
+  FieldGeneratorPtr Rgen, Zgen; // Location, function of x,y,z,t
+};
+
+///////////////////////////////////////////////////////
 
 class MergingFlux : public PhysicsModel {
 protected:
   int init(bool restarting) {
+
+    // Add a function which can be used in input expressions
+    // This calculates the Greens function for a coil
+    FieldFactory::get()->addGenerator("coil_greens", std::make_shared<CoilGenerator>());
     
     // Get the magnetic field
-    Coordinates *coord = mesh->coordinates();
+    Coordinates *coord = mesh->getCoordinates();
     B0 = coord->Bxy;
     R = sqrt(coord->g_22);
     
     // Read options
-    Options *opt = Options::getRoot()->getSection("model");
-    OPTION(opt, resistivity, 0.0);
-    OPTION(opt, viscosity, 0.0);
-    OPTION(opt, density, 5e18);
-    OPTION(opt, Te, 10.); // Reference temperature [eV]
-    OPTION(opt, AA, 2.0); // Atomic mass number
+    Options& opt = Options::root()["model"];
+    resistivity = opt["resistivity"].withDefault(0.0);
+    viscosity = opt["viscosity"].withDefault(0.0);
+    density = opt["density"].withDefault(5e18);
+    Te = opt["Te"].doc("Reference temperature [eV]").withDefault(10.);
+    AA = opt["AA"].doc("Atomic mass number").withDefault(2.0);
 
-    OPTION(opt, Bv, 0.0); // External vertical field [T]
+    Bv = opt["Bv"].doc("External vertical field [T]").withDefault(0.0);
+
+    // External flux Psiext and toroidal electric field Eext can vary in time
+    // so a generator is needed which can be evaluated at each step
+    FieldFactory* factory = FieldFactory::get();
+    Psiext_gen = factory->parse(
+        opt["Psiext"].doc("External magnetic flux [Wb]").withDefault("0.0"),
+        &opt);
+    Psiext = factory->create3D(Psiext_gen);
+
+    Eext_gen = factory->parse(opt["Eext"]
+                                  .doc("External toroidal electric field [V/m]")
+                                  .withDefault("0.0"),
+                              &opt);
+    Eext = factory->create3D(Eext_gen);
+    
+    SAVE_REPEAT(Psiext, Eext);
     
     BoutReal mass_density = density * AA*SI::Mp; // kg/m^3
 
     // Calculate normalisations
+    // Note: A reference magnetic field of 1T and length of 1m is used
     tau_A = sqrt(SI::mu0 * mass_density); // timescale [s]
     
     SAVE_ONCE2(tau_A, density); // Save to output
@@ -87,7 +171,7 @@ protected:
     
     return 0;
   }
-  int rhs(BoutReal t) {
+  int rhs(BoutReal time) {
     
     mesh->communicate(Apar, omega);
     
@@ -116,9 +200,20 @@ protected:
         Jpar(i,j,mesh->LocalNz-1) = Jpar(i,j,mesh->LocalNz-2);
       }
     }
+
+    // Evaluate external poloidal flux Psiext and toroidal electric field Eext
+    // Note that the normalisation (B=1T, L=1T) means that the input Psiext
+    // is in Webers (SI units). Because time is normalised to tau_A,
+    // the input electric field Eext is multiplied by tau_A to get normalised units.
+    //
+    // To keep the input in SI units, time "t" is given in seconds
+
+    FieldFactory* factory = FieldFactory::get();
+    Psiext = factory->create3D(Psiext_gen, bout::globals::mesh, CELL_CENTRE, time * tau_A);
+    Eext = tau_A * factory->create3D(Eext_gen, bout::globals::mesh, CELL_CENTRE, time * tau_A);
     
     // Poloidal flux, including external field
-    psi = Apar * R + 0.5*Bv*SQ(R);
+    psi = Apar * R + 0.5*Bv*SQ(R) + Psiext;
     
     // Vorticity
     ddt(omega) = 
@@ -131,6 +226,7 @@ protected:
     ddt(Apar) = 
       bracket(psi, phi, BRACKET_ARAKAWA)/R // b dot Grad(phi)
       - resistivity * Jpar // Resistivity
+      + Eext  // External electric field. Since Eext = -dAext/dt, the plasma Apar cancels Psiext
       ;
     
     return 0;
@@ -159,6 +255,13 @@ private:
 
   Field2D R; // Major radius
   BoutReal Bv; // Vertical magnetic field
+  Field3D Psiext; // External magnetic flux
+  Field3D Eext;   // External toroidal electric field
+  
+  // Generators for time-varying external flux and electric field
+  FieldGeneratorPtr Psiext_gen;  // Generates Psiext
+  FieldGeneratorPtr Eext_gen;    // Generates Eext;
+  
 };
 
 BOUTMAIN(MergingFlux);

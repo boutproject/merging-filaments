@@ -1,0 +1,124 @@
+#
+# 
+
+nout = 20
+timestep = 1
+
+MYG = 0
+
+ZMAX = mesh:Lz/(2*pi) # Sets dz
+
+[mesh]
+
+Lx = 1.8   # X size in meters (0.2 to 2.0 in MAST)
+Lz = 4.4   # Z size in meters (-2.2 to +2.2 in MAST)
+
+nx = 68    # number of points in X, including 4 guard cells
+ny = 1     # Axisymmetric
+nz = 128    # Number of points in Z
+
+# Parallel current density
+
+mu0 = 4e-7*pi
+
+jm = mu0 * 0.8e6  # Maximum current density [A/m^2] normalised to mu0
+w = 0.4  # Width of the current filaments
+
+X0 = 0.9 # X location of the filaments
+Z1 = 2.2+0.6 # Z location of filament 1
+Z2 = 2.2-0.6 # Z location of filament 2
+
+R1 = sqrt((xpos-X0)^2 + (zpos-Z1)^2) # Radius from centre of filament 0
+R2 = sqrt((xpos-X0)^2 + (zpos-Z2)^2) # Radius from centre of filament 1
+
+filament1 = H(w - R1)*jm*(1-(R1/w)^2)^2
+filament2 = H(w - R2)*jm*(1-(R2/w)^2)^2
+
+Jpar = 0.0  # No starting current
+
+RBt = 0.5  # R*Bt in [m][T]
+
+######################
+
+
+xpos = x * Lx          # X position [m]
+zpos = z * Lz / (2*pi) # Z position [m]
+
+Rxy = xpos + 0.2  # Major radius [m]
+
+Bxy = RBt / Rxy # Magnetic field in Tesla
+
+# The x direction is (toroidal) flux dx = B*dlx
+g11 = Bxy^2
+g_11 = 1/g11
+
+# The y direction is toroidal angle
+g22 = 1/Rxy^2
+g_22 = 1/g22
+
+# The z direction is height dz = dlz
+
+J = Rxy / Bxy
+
+dx = Bxy * Lx/nx  # Flux
+ZMAX = Lz/(2*pi) # Sets dz
+
+[solver]  # Time integration solver
+
+
+[phisolver]
+type=cyclic
+dst = true
+nonuniform = true
+
+[psisolver]
+type = cyclic
+dst = true
+nonuniform = true
+
+[laplace]
+nonuniform = true
+
+
+[model]
+
+viscosity = 5e-4    # Normalised Braginskii is 5.629712e-10, gyro 7.248928e-07
+resistivity = 5e-6  # Normalised Braginskii is 2.220479e-06
+
+Bv = 0.0 # External vertical field [T]
+
+###################################
+# Pair of Helmholtz coils to produce a vertical field, setting psiext (external flux)
+
+Rcoil = 2.0  # Radial location of coils [m]
+Zcoil1 = 2.2 + 1.0 # Height of coil1 [m]
+Zcoil2 = 2.2 - 1.0 # Height of coil2 [m]
+Bcentre = 0.03  # Vertical magnetic field at centre [T]
+mu0 = 4e-7*pi
+
+Icoil = Bcentre * Rcoil * (5/4)^1.5 / mu0   # Current*turns in each coil
+
+# Calculate poloidal flux due to pair of coils
+psi_helmholtz = Icoil * (coil_greens(Rcoil, Zcoil1, mesh:Rxy, mesh:zpos) + coil_greens(Rcoil, Zcoil2, mesh:Rxy, mesh:zpos))
+
+####################################
+# A pair of coils to be used for breakdown.
+# These start with finite current, and ramp down to zero
+
+# Define poloidal flux due to unit current in each coil
+shape_psi = coil_greens(0.9, 2.2 + 0.6, mesh:Rxy, mesh:zpos)# + coil_greens(0.9, 2.2 - 0.6, mesh:Rxy, mesh:zpos)
+
+tau_breakdown = 1e-4 # Timescale for breakdown [seconds]
+Istart = 1e4 # Starting current in each coil [Amps]
+
+# Note: Here "t" is the simulation time in seconds. H(x) = 0 if x < 0 i.e. if t > tau_breakdown.
+psi_breakdown = Istart * cos(t / tau_breakdown * (π/2)) * H(tau_breakdown - t) * shape_psi
+
+# Electric field: E = -dA/dt = - d/dt(psi/R)
+Eext = Istart * (π/2)/tau_breakdown * sin(t / tau_breakdown * (π/2)) * H(tau_breakdown - t) * shape_psi / mesh:Rxy
+
+####################################
+# External poloidal flux psiext
+# Sum of helmholtz coils (vertical field) and breakdown coils
+
+psiext = psi_breakdown + psi_helmholtz
