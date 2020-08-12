@@ -1,8 +1,8 @@
 #
 # 
 
-nout = 20
-timestep = 1
+nout = 100
+timestep = 20
 
 MYG = 0
 
@@ -93,7 +93,7 @@ Bv = 0.0 # External vertical field [T]
 Rcoil = 2.0  # Radial location of coils [m]
 Zcoil1 = 2.2 + 1.0 # Height of coil1 [m]
 Zcoil2 = 2.2 - 1.0 # Height of coil2 [m]
-Bcentre = 0.03  # Vertical magnetic field at centre [T]
+Bcentre = 0.0  # Vertical magnetic field at centre [T]
 mu0 = 4e-7*pi
 
 Icoil = Bcentre * Rcoil * (5/4)^1.5 / mu0   # Current*turns in each coil
@@ -106,7 +106,7 @@ psi_helmholtz = Icoil * (coil_greens(Rcoil, Zcoil1, mesh:Rxy, mesh:zpos) + coil_
 # These start with finite current, and ramp down to zero
 
 # Define poloidal flux due to unit current in each coil
-shape_psi = coil_greens(0.9, 2.2 + 0.6, mesh:Rxy, mesh:zpos)# + coil_greens(0.9, 2.2 - 0.6, mesh:Rxy, mesh:zpos)
+shape_psi = coil_greens(0.9, 2.2 + 0.6, mesh:Rxy, mesh:zpos) + coil_greens(0.9, 2.2 - 0.6, mesh:Rxy, mesh:zpos)
 
 tau_breakdown = 1e-4 # Timescale for breakdown [seconds]
 Istart = 1e4 # Starting current in each coil [Amps]

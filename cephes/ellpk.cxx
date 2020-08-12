@@ -97,8 +97,10 @@ const double C1 = 1.3862943611198906188E0;	/* log(4) */
 
 const double MACHEP = 1e-16;
 
-double ellpk(double x) {
+double ellpk(double m) {
 
+  double x = 1. - m;
+  
   if (x < 0.0) {
     throw BoutException("Input to ellpk must be positive");
   }
